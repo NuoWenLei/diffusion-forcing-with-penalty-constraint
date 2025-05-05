@@ -248,7 +248,7 @@ def make_trajectory_images(env_id, trajectory, batch_size, start, goal, plot_end
         fig.tight_layout()
         fig.canvas.draw()
         img_shape = fig.canvas.get_width_height()[::-1] + (4,)
-        img = np.frombuffer(fig.canvas.buffer_rgba(), dtype=np.uint8).copy().reshape(img_shape)
+        img = np.frombuffer(fig.canvas.buffer_rgba(), dtype=np.uint8).copy().reshape((img_shape[0] * 2, img_shape[1] * 2, img_shape[2]))
         images.append(img)
 
         plt.close()

@@ -18,7 +18,7 @@ imageio
 einops
 pandas
 pyzmq
-pyrealsense2
+pyrealsense2-macosx
 internetarchive
 h5py
 rotary_embedding_torch
