@@ -231,7 +231,7 @@ def plot_start_goal(ax, start_goal: None):
     draw_star((goal_x, goal_y), radius=0.08)
 
 
-def make_trajectory_images(env_id, trajectory, batch_size, start, goal, plot_end_points=True):
+def make_trajectory_images(env_id, trajectory, batch_size, start, goal, plot_end_points=True, include_avoidance_points=None, avoidance_radius=None):
     images = []
     for batch_idx in range(batch_size):
         fig, ax = plt.subplots()
@@ -244,6 +244,11 @@ def make_trajectory_images(env_id, trajectory, batch_size, start, goal, plot_end
         if plot_end_points:
             start_goal = (start[batch_idx], goal[batch_idx])
             plot_start_goal(ax, start_goal)
+        if include_avoidance_points:
+            for point in include_avoidance_points:
+                goal_outer_circle = plt.Circle(point, avoidance_radius, fill=False, edgecolor="blue")
+                ax.add_patch(goal_outer_circle)
+
         # plt.title(f"sample_{batch_idx}")
         fig.tight_layout()
         fig.canvas.draw()

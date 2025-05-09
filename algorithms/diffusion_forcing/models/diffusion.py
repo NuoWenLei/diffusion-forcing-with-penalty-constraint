@@ -4,7 +4,7 @@ from omegaconf import DictConfig
 import torch
 from torch import nn
 from torch.nn import functional as F
-from einops import rearrange
+from einops import rearrange, repeat
 from .unet3d import Unet3D
 from .transformer import Transformer
 from .utils import linear_beta_schedule, cosine_beta_schedule, sigmoid_beta_schedule, extract, EinopsWrapper
@@ -41,6 +41,9 @@ class Diffusion(nn.Module):
         self.arch = cfg.architecture
         self.stabilization_level = cfg.stabilization_level
         self.is_causal = is_causal
+
+        ##### Penalty Constraint #####
+        self.constraints = cfg.constraints
 
         self._build_model()
         self._build_buffer()
@@ -273,6 +276,9 @@ class Diffusion(nn.Module):
         x: torch.Tensor,
         external_cond: Optional[torch.Tensor],
         noise_levels: torch.Tensor,
+        goal_positions: torch.Tensor = None,
+        avoidance_point: torch.Tensor = None,
+        penalty_iteration: int | None = None,
     ):
         noise = torch.randn_like(x)
         noise = torch.clamp(noise, -self.clip_noise, self.clip_noise)
@@ -283,6 +289,8 @@ class Diffusion(nn.Module):
         pred = model_pred.model_out
         x_pred = model_pred.pred_x_start
 
+        coord_pred = x_pred.reshape(x_pred.shape[0], x_pred.shape[1], 10, 2)
+        
         if self.objective == "pred_noise":
             target = noise
         elif self.objective == "pred_x0":
@@ -292,11 +300,50 @@ class Diffusion(nn.Module):
         else:
             raise ValueError(f"unknown objective {self.objective}")
 
-        loss = F.mse_loss(pred, target.detach(), reduction="none")
+
+        #### CALCULATE PENALTY
+
+        penalty_term = 0.0
+        if self.constraints.constraint_type == "goal":
+            if goal_positions is not None:
+                acceptable_distance = self.constraints.penalty_delta / self.constraints.penalty_warp
+                goal = torch.unsqueeze((x * goal_positions).sum(dim = 0), dim=0).repeat(x_pred.shape[0], 1, 1).reshape(x_pred.shape[0], x_pred.shape[1], 10, 2)
+                # Only penalize post-terminal walk
+                terminal_mask = torch.cumsum(goal_positions, dim=0)
+                penalty_term = terminal_mask * torch.relu(
+                    torch.sqrt(((coord_pred - goal)**2).sum(dim=-1))
+                    - acceptable_distance).repeat_interleave(2, dim=2) ** 2
+        elif self.constraints.constraint_type == "avoidance":
+            if avoidance_point is not None:
+                unacceptable_distance = self.constraints.penalty_delta / self.constraints.penalty_warp
+                # Penalty term is greater when distance between coord_pred and avoidance_point is lesser
+                for point in avoidance_point:
+                    penalty_term += torch.relu(
+                                unacceptable_distance
+                                - torch.sqrt(((coord_pred - point)**2).sum(dim=-1))).repeat_interleave(2, dim=2) ** 2 # (n_tokens, batch_size, 20)
+        penalty_mask = torch.unsqueeze((noise_levels / self.timesteps) <= .8, dim=-1).repeat(1, 1, 20)
+
+        penalty_term = penalty_mask * penalty_term
+
+        penalty_scale = self.constraints.penalty_lambda
+        if penalty_iteration is not None:
+            penalty_scale = (self.constraints.penalty_lambda
+                            * (self.constraints.penalty_growth ** (penalty_iteration // self.constraints.penalty_grow_per_steps)))
+
+        diffusion_loss = F.mse_loss(pred, target.detach(), reduction="none")
+        penalty_term_expanded = penalty_term
+        if self.constraints.constraint_type == "goal":
+            # to counteract the loss reweighing in training_step() df_planning.py
+            scaled_penalty_term = 20. * penalty_term_expanded / (torch.norm(penalty_term_expanded) + 1e-3) 
+        else:
+            scaled_penalty_term = penalty_term_expanded / (torch.norm(penalty_term_expanded) + 1e-3)
+        loss = diffusion_loss + penalty_scale * torch.norm(diffusion_loss) * scaled_penalty_term
         loss_weight = self.compute_loss_weights(noise_levels)
         loss_weight = loss_weight.view(*loss_weight.shape, *((1,) * (loss.ndim - 2)))
         loss = loss * loss_weight
 
+        if penalty_iteration is not None:
+            return x_pred, loss, (torch.mean(penalty_term) <= self.constraints.penalty_early_stop), torch.mean(penalty_term)
         return x_pred, loss
 
     def sample_step(

@@ -36,6 +36,12 @@ class DiffusionForcingPlanning(DiffusionForcingBase):
         self.padding_mode = cfg.padding_mode
         super().__init__(cfg)
         self.plot_end_points = cfg.plot_start_goal and self.guidance_scale != 0
+        self.avoidance_point = cfg.diffusion.constraints.avoidance_point
+        self.penalty_max_iter = cfg.diffusion.constraints.penalty_max_iter
+        self.penalty_delta = cfg.diffusion.constraints.penalty_delta
+        self.constraint_type = cfg.diffusion.constraints.constraint_type
+
+        self.automatic_optimization = False
 
     def _build_model(self):
         mean = list(self.observation_mean) + list(self.action_mean)
@@ -64,7 +70,8 @@ class DiffusionForcingPlanning(DiffusionForcingBase):
         rewards = rewards[:, :-1, None]
         actions = actions[:, :-1]
         init_obs, observations = torch.split(observations, [1, n_frames - 1], dim=1)
-        bundles = self._normalize_x(self.make_bundle(observations, actions, rewards))  # (b t c)
+        unnormalized_bundles = self.make_bundle(observations, actions, rewards)
+        bundles = self._normalize_x(unnormalized_bundles)  # (b t c)
         init_bundle = self._normalize_x(self.make_bundle(init_obs[:, 0]))  # (b c)
         init_bundle[:, self.observation_dim :] = 0  # zero out actions and rewards after normalization
         init_bundle = self.pad_init(init_bundle, batch_first=True)  # (b t c)
@@ -79,46 +86,93 @@ class DiffusionForcingPlanning(DiffusionForcingBase):
         return bundles, conditions, masks
 
     def training_step(self, batch, batch_idx):
+
         xs, conditions, masks = self._preprocess_batch(batch)
 
         n_tokens, batch_size = xs.shape[:2]
 
+        normalized_avoidance_points = []
+        for point in self.avoidance_point:
+            normalized_avoidance_point = self._normalize_x(torch.FloatTensor(point).to(self.device))
+            normalized_avoidance_point = torch.unsqueeze(
+                torch.unsqueeze(
+                    torch.unsqueeze(
+                        normalized_avoidance_point
+                    , dim=0)
+                , dim=0), dim=0).repeat(n_tokens, batch_size, self.frame_stack, 1)
+            normalized_avoidance_points.append(normalized_avoidance_point)
+
+        goal_positions = None
         weights = masks.float()
         if not self.causal:
             # manually mask out entries to train for varying length
             random_terminal = torch.randint(2, n_tokens + 1, (batch_size,), device=self.device)
-            random_terminal = nn.functional.one_hot(random_terminal, n_tokens + 1)[:, :n_tokens].bool()
-            random_terminal = repeat(random_terminal, "b t -> (t fs) b", fs=self.frame_stack)
+            random_terminal_onehot = nn.functional.one_hot(random_terminal, n_tokens + 1)[:, :n_tokens].bool()
+            random_terminal = repeat(random_terminal_onehot, "b t -> (t fs) b", fs=self.frame_stack)
             nonterminal_causal = torch.cumprod(~random_terminal, dim=0)
             weights *= torch.clip(nonterminal_causal.float(), min=0.05)
             masks *= nonterminal_causal.bool()
 
-        xs_pred, loss = self.diffusion_model(xs, conditions, noise_levels=self._generate_noise_levels(xs, masks=masks))
+            goal_positions = torch.unsqueeze(random_terminal_onehot, dim=-1).repeat(1, 1, 20).permute(1, 0, 2)
 
-        loss = self.reweight_loss(loss, weights)
 
+        ##### PENALTY #####
+        # REMEMBER TO TURN OFF self.automatic_optimization
+        opt = self.optimizers()
+        original_loss = None
+        original_xs = None
+        original_xs_pred = None
+
+        for penalty_iteration in range(self.penalty_max_iter):
+            opt.zero_grad()
+
+            xs_pred, loss, early_stop, penalty_term = self.diffusion_model(
+                xs,
+                conditions,
+                noise_levels=self._generate_noise_levels(xs, masks=masks),
+                goal_positions=goal_positions,
+                avoidance_point=normalized_avoidance_points,
+                penalty_iteration=penalty_iteration)
+
+            loss = self.reweight_loss(loss, weights)
+
+            if penalty_iteration == 0:
+
+                original_xs = self._unstack_and_unnormalize(xs)[self.frame_stack - 1 :]
+                original_xs_pred = self._unstack_and_unnormalize(xs_pred)[self.frame_stack - 1 :]
+
+                original_loss = loss.detach()
+
+                # Visualization, including masked out entries
+                if self.global_step % 10000 == 0:
+                    o, a, r = self.split_bundle(original_xs_pred)
+                    trajectory = o.detach().cpu().numpy()[:-1, :8]  # last observation is dummy, sample 8
+                    images = make_trajectory_images(self.env_id, trajectory, trajectory.shape[1], None, None, False)
+                    for i, img in enumerate(images):
+                        self.log_image(
+                            f"training_visualization/sample_{i}",
+                            Image.fromarray(img),
+                        )
+            
+            self.manual_backward(loss)
+            opt.step()
+
+            if early_stop:
+                break
+        
+        if not early_stop:
+            print(penalty_term)
+        
         if batch_idx % 100 == 0:
-            self.log("training/loss", loss, on_step=True, on_epoch=False, sync_dist=True)
-
-        xs = self._unstack_and_unnormalize(xs)[self.frame_stack - 1 :]
-        xs_pred = self._unstack_and_unnormalize(xs_pred)[self.frame_stack - 1 :]
-
-        # Visualization, including masked out entries
-        if self.global_step % 10000 == 0:
-            o, a, r = self.split_bundle(xs_pred)
-            trajectory = o.detach().cpu().numpy()[:-1, :8]  # last observation is dummy, sample 8
-            images = make_trajectory_images(self.env_id, trajectory, trajectory.shape[1], None, None, False)
-            for i, img in enumerate(images):
-                self.log_image(
-                    f"training_visualization/sample_{i}",
-                    Image.fromarray(img),
-                )
+            self.log("training/loss", original_loss, on_step=True, on_epoch=False, sync_dist=True)
 
         output_dict = {
-            "loss": loss,
-            "xs_pred": xs_pred,
-            "xs": xs,
+            "loss": original_loss,
+            "xs_pred": original_xs_pred,
+            "xs": original_xs,
         }
+
+        ##### END PENALTY #####
 
         return output_dict
 
@@ -251,7 +305,7 @@ class DiffusionForcingPlanning(DiffusionForcingBase):
         # Visualization
         o, _, _ = self.split_bundle(plan)
         o = o.detach().cpu().numpy()[:-1, :16]  # last observation is dummy
-        images = make_trajectory_images(self.env_id, o, o.shape[1], start, goal, self.plot_end_points)
+        images = make_trajectory_images(self.env_id, o, o.shape[1], start, goal, self.plot_end_points, self.avoidance_point if self.constraint_type == "avoidance" else None, avoidance_radius=self.penalty_delta)
         for i, img in enumerate(images):
             self.log_image(
                 f"{namespace}_plan/sample_{i}",
