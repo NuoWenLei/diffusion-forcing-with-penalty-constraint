@@ -42,13 +42,13 @@ diffusion:
   constraints:
     penalty_warp: 1.3371079 # dataset std for "avoidance", used to normalize the penalty delta for avoidance.
     penalty_delta: 0.3 # If "avoidance", this is the unacceptable distance between pred and avoidance points.
-    penalty_lambda: 0.5
+    penalty_lambda: 0.04
     penalty_max_iter: 101
     penalty_growth: 1.2
     penalty_grow_per_steps: 10
-    penalty_early_stop: 0.001
+    penalty_early_stop: 0.0008
     constraint_type: "avoidance" # Between "goal" and "avoidance"
-    avoidance_point: [[2, 4]] # x ~ [1, 6], y ~ [1, 6] for medium grid
+    avoidance_point: [[2, 4], [3, 2], [5, 4]] # x ~ [1, 6], y ~ [1, 6] for medium grid
   architecture:
     network_size: 128
     num_layers: 12

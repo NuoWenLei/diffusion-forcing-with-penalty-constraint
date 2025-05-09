@@ -343,7 +343,7 @@ class Diffusion(nn.Module):
         loss = loss * loss_weight
 
         if penalty_iteration is not None:
-            return x_pred, loss, (torch.mean(penalty_term) <= self.constraints.penalty_early_stop), torch.mean(penalty_term)
+            return x_pred, loss, ((torch.sum(penalty_term) / torch.sum(penalty_mask)) <= self.constraints.penalty_early_stop), torch.sum(penalty_term) / torch.sum(penalty_mask)
         return x_pred, loss
 
     def sample_step(
