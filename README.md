@@ -45,7 +45,7 @@ Then, run the script.
 
 ```
 algorithms/diffusion_forcing/df_planning.py
-- Line 88 to 177
+- Line 88 to 186
 
 algorithms/diffusion_forcing/models/diffusion.py
 - Line 274 to 347

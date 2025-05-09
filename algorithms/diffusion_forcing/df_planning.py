@@ -122,8 +122,11 @@ class DiffusionForcingPlanning(DiffusionForcingBase):
         original_loss = None
         original_xs = None
         original_xs_pred = None
+        total_penalty = 0.0
+        iterations_till_convergence = 0
 
         for penalty_iteration in range(self.penalty_max_iter):
+            iterations_till_convergence += 1
             opt.zero_grad()
 
             xs_pred, loss, early_stop, penalty_term = self.diffusion_model(
@@ -133,6 +136,8 @@ class DiffusionForcingPlanning(DiffusionForcingBase):
                 goal_positions=goal_positions,
                 avoidance_point=normalized_avoidance_points,
                 penalty_iteration=penalty_iteration)
+
+            total_penalty += penalty_term
 
             loss = self.reweight_loss(loss, weights)
 
@@ -162,7 +167,11 @@ class DiffusionForcingPlanning(DiffusionForcingBase):
         
         if not early_stop:
             print(penalty_term)
-        
+
+        if batch_idx % 10 == 0:
+            self.log("training/total_penalty", total_penalty, on_step=True, on_epoch=False, sync_dist=True)
+            self.log("training/iterations_till_convergence", iterations_till_convergence, on_step=True, on_epoch=False, sync_dist=True)
+
         if batch_idx % 100 == 0:
             self.log("training/loss", original_loss, on_step=True, on_epoch=False, sync_dist=True)
 
