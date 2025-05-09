@@ -26,7 +26,9 @@ padding_mode: same
 weight_decay: 1e-4
 warmup_steps: 10000
 # diffusion-related
-guidance_scale: 2.0
+
+#### IMPORTANT: 0 equals random walk, non-zero equals goal guidance
+guidance_scale: 0.0
 chunk_size: ${dataset.episode_len}
 scheduling_matrix: pyramid
 
@@ -35,8 +37,30 @@ diffusion:
   beta_schedule: linear
   objective: pred_x0
   ddim_sampling_eta: 0.0
+
+  #### CONSTRAINTS ####
+  constraints:
+    penalty_warp: 1.3371079 # dataset std for "avoidance", used to normalize the penalty delta for avoidance.
+    penalty_delta: 0.3 # If "avoidance", this is the unacceptable distance between pred and avoidance points.
+    penalty_lambda: 0.5
+    penalty_max_iter: 101
+    penalty_growth: 1.2
+    penalty_grow_per_steps: 10
+    penalty_early_stop: 0.001
+    constraint_type: "avoidance" # Between "goal" and "avoidance"
+    avoidance_point: [[2, 4]] # x ~ [1, 6], y ~ [1, 6] for medium grid
   architecture:
     network_size: 128
     num_layers: 12
     attn_heads: 4
     dim_feedforward: 512
+  # goal_constraints:
+  #   penalty_warp: 1.3371079 # dataset std for "avoidance", used to normalize the penalty delta for avoidance.
+  #   penalty_delta: 0.3 # If "avoidance", this is the unacceptable distance between pred and avoidance points. If "goal", this is the accepted distance between pred and goal (after termination).
+  #   penalty_lambda: 0.05
+  #   penalty_max_iter: 101
+  #   penalty_growth: 1.2
+  #   penalty_grow_per_steps: 10
+  #   penalty_early_stop: 0.01
+  #   constraint_type: "goal" # Between "goal" and "avoidance"
+  #   avoidance_point: [2, 4] # x ~ [1, 6], y ~ [1, 6] for medium grid. NOT USED IN "goal"
