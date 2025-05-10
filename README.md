@@ -1,8 +1,12 @@
+### Acknowledgement
+
+This is a fork of the [Diffusion Forcing v1.5](https://github.com/buoyancy99/diffusion-forcing) repository. See `original_README.md` for more details on the original repository.
+
 # Diffusion Fine-tuning as Constrained Optimization
 
-This is a fork of the Diffusion Forcing repo on which we ran our constrained diffusion experiment for maze2d planning and point avoidance. See `original_README.md` for more details on the original Diffusion Forcing repo.
+This is the main repo of Diffusion Fine-tuning as Constrained Optimization, including code for our experiments on **Maze2D planning** and **MNIST**. Please see below for instructions to run both experiments.
 
-# Project Instructions
+# Instructions for Maze2D Planning
 
 ## Setup
 
@@ -57,3 +61,13 @@ algorithms/diffusion_forcing/models/diffusion.py
 configurations/algorithm/df_planning.yaml
 configurations/experiment/exp_planning.yaml
 ```
+
+# Instructions for MNIST
+
+### Run on Google Colab
+
+Please open [this Google Colab notebook](https://colab.research.google.com/drive/1Z_-nJj-cXISLIB1u7WC6wD7sAcdq7JFs?usp=sharing), save a copy to your drive, and run it.
+
+### View Locally
+
+An `.ipynb` copy of the notebook is saved under the `mnist/` directory although the notebook **requires some of the packages installed in the Google Colab environment** to be ran.
