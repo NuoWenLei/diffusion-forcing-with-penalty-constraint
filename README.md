@@ -4,6 +4,8 @@ This is a fork of the [Diffusion Forcing v1.5](https://github.com/buoyancy99/dif
 
 # Diffusion Fine-tuning as Constrained Optimization
 
+**Report**: `report/Constrained_Diffusion_Fine_Tuning.pdf`
+
 This is the main repo of Diffusion Fine-tuning as Constrained Optimization, including code for our experiments on **Maze2D planning** and **MNIST**. Please see below for instructions to run both experiments.
 
 # Instructions for Maze2D Planning
