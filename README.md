@@ -27,7 +27,9 @@ pip install -r requirements.txt
 
 Then modify the wandb entity in `configurations/config.yaml` to your wandb account.
 
-Please rename the folder `outputs_/` to `outputs/` to use the pre-trained diffusion forcing model.
+Please download the pretrained Diffusion Planning model from [here](https://drive.google.com/file/d/1wBhHpAE6lgSxxTh8XUsl8ZUVw3S6G7R1/view?usp=sharing). And then create an `outputs/` folder in the repository and place the `.ckpt` file into `outputs/`.
+
+The path of the pretrained diffusion planning model weights should be `outputs/maze2d_medium_x.ckpt`.
 
 ## Run Fine-tuning on Diffusion Planner
 
